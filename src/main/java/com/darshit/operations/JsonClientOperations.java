@@ -32,13 +32,16 @@ public class JsonClientOperations implements JsonOperations {
     }
 
     private void insertIntoIndex(String key, String path) throws JsonStoreException {
-        try {
-            Files.write(Paths.get(path + ".idx"), (key + "\n").getBytes(StandardCharsets.UTF_8), StandardOpenOption.APPEND, StandardOpenOption.CREATE);
-            index = loadIndex(path);
-        } catch (IOException e) {
-            e.printStackTrace();
-            throw new JsonStoreException(e.getMessage(), e.getCause());
+        synchronized (JsonClientOperations.class) {
+            try {
+                Files.write(Paths.get(path + ".idx"), (key + "\n").getBytes(StandardCharsets.UTF_8), StandardOpenOption.APPEND, StandardOpenOption.CREATE);
+                index = loadIndex(path);
+            } catch (IOException e) {
+                e.printStackTrace();
+                throw new JsonStoreException(e.getMessage(), e.getCause());
+            }
         }
+
     }
 
     public boolean create(Data data, String jsonPath) throws JsonStoreException {
@@ -48,14 +51,16 @@ public class JsonClientOperations implements JsonOperations {
         }
         Path path = Paths.get(jsonPath);
         loadIndex(jsonPath);
-        if (index.add(key)) {
-            insertIntoIndex(key, jsonPath);
-            try {
-                Files.write(path, (gson.toJson(data) + "\n").getBytes(StandardCharsets.UTF_8), StandardOpenOption.APPEND, StandardOpenOption.CREATE);
-                return true;
-            } catch (IOException e) {
-                e.printStackTrace();
-                throw new JsonStoreException(e.getMessage(), e.getCause());
+        synchronized (JsonClientOperations.class) {
+            if (index.add(key)) {
+                insertIntoIndex(key, jsonPath);
+                try {
+                    Files.write(path, (gson.toJson(data) + "\n").getBytes(StandardCharsets.UTF_8), StandardOpenOption.APPEND, StandardOpenOption.CREATE);
+                    return true;
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    throw new JsonStoreException(e.getMessage(), e.getCause());
+                }
             }
         }
         return false;
@@ -67,68 +72,76 @@ public class JsonClientOperations implements JsonOperations {
         path = path.endsWith(".json") ? path : path + ".json";
         boolean found = false;
         boolean remove = false;
-        if (!index.isEmpty() && index.contains(key)) {
-            try (FileInputStream in = new FileInputStream(path);
-                 InputStreamReader inputStreamReader = new InputStreamReader(in, StandardCharsets.UTF_8);
-                 JsonReader jsonReader = new JsonReader(inputStreamReader);
-            ) {
-                jsonReader.setLenient(true);
-                Data streamData;
-                while (jsonReader.hasNext() && !found) {
-                    streamData = gson.fromJson(jsonReader, Data.class);
-                    if (key.equals(streamData.getKey())) {
-                        if (LocalDateTime.now().isBefore(streamData.getExpireAt())) {
-                            data = streamData;
-                        } else {
-                            index.remove(key);
-                            removeData = streamData;
-                            remove = true;
+        synchronized (JsonClientOperations.class) {
+            if (!index.isEmpty() && index.contains(key)) {
+                try (FileInputStream in = new FileInputStream(path);
+                     InputStreamReader inputStreamReader = new InputStreamReader(in, StandardCharsets.UTF_8);
+                     JsonReader jsonReader = new JsonReader(inputStreamReader);
+                ) {
+                    jsonReader.setLenient(true);
+                    Data streamData;
+                    while (jsonReader.hasNext() && !found) {
+                        streamData = gson.fromJson(jsonReader, Data.class);
+                        if (key.equals(streamData.getKey())) {
+                            if (LocalDateTime.now().isBefore(streamData.getExpireAt())) {
+                                data = streamData;
+                            } else {
+                                index.remove(key);
+                                removeData = streamData;
+                                remove = true;
+                            }
+                            found = true;
                         }
-                        found = true;
                     }
+                } catch (Exception ex) {
+                    ex.printStackTrace();
                 }
-            } catch (Exception ex) {
-                ex.printStackTrace();
             }
-        }
-        if (remove) {
-            deleteKey(removeData, path);
+            if (remove) {
+                deleteKey(removeData, path);
+            }
         }
         return data;
     }
 
     private boolean deleteKey(Data removeData, String path) {
-        try {
-            Path out = Paths.get(path + ".tmp");
-            Path input = Paths.get(path);
-            String dataToReplace = gson.toJson(removeData);
-            replaceStringIntoNewFile(dataToReplace, out, input);
-            return true;
-        } catch (IOException e) {
-            e.printStackTrace();
+        synchronized (JsonClientOperations.class) {
+            try {
+                Path out = Paths.get(path + ".tmp");
+                Path input = Paths.get(path);
+                String dataToReplace = gson.toJson(removeData);
+                replaceStringIntoNewFile(dataToReplace, out, input);
+                return true;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
         return false;
     }
 
     private boolean deleteKeyFromIndex(String key, String path) {
-        try {
-            Path out = Paths.get(path + ".tmp");
-            Path input = Paths.get(path);
-            replaceStringIntoNewFile(key, out, input);
-            return true;
-        } catch (IOException e) {
-            e.printStackTrace();
+        synchronized (JsonClientOperations.class) {
+            try {
+                Path out = Paths.get(path + ".tmp");
+                Path input = Paths.get(path);
+                replaceStringIntoNewFile(key, out, input);
+                return true;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
         return false;
     }
 
     private void replaceStringIntoNewFile(String key, Path out, Path input) throws IOException {
-        Files.lines(input)
-                .map(line -> line.replaceAll(Pattern.quote(key), ""))
-                .forEach(line -> {
-                    writeToTempFile(out, line);
-                });
-        Files.move(out, input, StandardCopyOption.REPLACE_EXISTING);
+        synchronized (JsonClientOperations.class) {
+            Files.lines(input)
+                    .map(line -> line.replaceAll(Pattern.quote(key), ""))
+                    .forEach(line -> {
+                        writeToTempFile(out, line);
+                    });
+            Files.move(out, input, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private void writeToTempFile(Path out, String line) {

@@ -21,21 +21,29 @@ public class JsonStoreClient {
     }
 
     public static JsonStoreClient getJsonStoreClient() {
-        if (jsonStoreClient == null ) {
-            jsonStoreClient = new JsonStoreClient();
+        synchronized (JsonStoreClient.class) {
+            if (jsonStoreClient == null) {
+                jsonStoreClient = new JsonStoreClient();
+            }
         }
-        if(jsonClientOperations == null) {
-            jsonClientOperations = new JsonClientOperations();
+        synchronized (JsonStoreClient.class) {
+            if (jsonClientOperations == null) {
+                jsonClientOperations = new JsonClientOperations();
+            }
         }
         return jsonStoreClient;
     }
 
     public static JsonStoreClient getJsonStoreClient(String jsonPath) {
-        if (jsonStoreClient == null) {
-            jsonStoreClient = new JsonStoreClient(jsonPath);
+        synchronized (JsonStoreClient.class) {
+            if (jsonStoreClient == null) {
+                jsonStoreClient = new JsonStoreClient(jsonPath);
+            }
         }
-        if(jsonClientOperations == null) {
-            jsonClientOperations = new JsonClientOperations();
+        synchronized (JsonStoreClient.class) {
+            if (jsonClientOperations == null) {
+                jsonClientOperations = new JsonClientOperations();
+            }
         }
         return jsonStoreClient;
     }
